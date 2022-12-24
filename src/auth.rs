@@ -1,10 +1,11 @@
 use anyhow::{anyhow, bail, Result};
 use base64::{engine::general_purpose, Engine as _};
+use clap::ValueEnum;
 use headers::HeaderValue;
 use hyper::Method;
 use lazy_static::lazy_static;
 use md5::Context;
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt};
 use uuid::Uuid;
 
 use crate::utils::{encode_uri, unix_now};
@@ -21,7 +22,7 @@ lazy_static! {
     };
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct AccessControl {
     rules: HashMap<String, PathControl>,
 }
@@ -187,10 +188,19 @@ impl Account {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, ValueEnum)]
 pub enum AuthMethod {
     Basic,
     Digest,
+}
+
+impl fmt::Display for AuthMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.to_possible_value()
+            .expect("no values are skipped")
+            .get_name()
+            .fmt(f)
+    }
 }
 
 impl AuthMethod {
