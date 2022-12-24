@@ -4,7 +4,7 @@ use crate::{args::Args, server::Request};
 
 pub const DEFAULT_LOG_FORMAT: &str = r#"$remote_addr "$request" $status"#;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct LogHttp {
     elements: Vec<LogElement>,
 }

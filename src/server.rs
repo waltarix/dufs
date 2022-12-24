@@ -1,5 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 
+use crate::args::{Order, SortType};
 use crate::auth::{AccessPaths, AccessPerm};
 use crate::streamer::Streamer;
 use crate::utils::{
@@ -7,6 +8,7 @@ use crate::utils::{
 };
 use crate::Args;
 use anyhow::{anyhow, Result};
+use clap::ValueEnum;
 use walkdir::WalkDir;
 use xml::escape::escape_str_pcdata;
 
@@ -76,7 +78,7 @@ impl Server {
         } else {
             vec![]
         };
-        let html = match args.assets_path.as_ref() {
+        let html = match &args.assets_path {
             Some(path) => Cow::Owned(std::fs::read_to_string(path.join("index.html"))?),
             None => Cow::Borrowed(INDEX_HTML),
         };
@@ -615,7 +617,7 @@ impl Server {
         res: &mut Response,
     ) -> Result<bool> {
         if let Some(name) = req_path.strip_prefix(&self.assets_prefix) {
-            match self.args.assets_path.as_ref() {
+            match &self.args.assets_path {
                 Some(assets_path) => {
                     let path = assets_path.join(name);
                     self.handle_send_file(&path, headers, false, res).await?;
@@ -928,25 +930,28 @@ impl Server {
         user: Option<String>,
         res: &mut Response,
     ) -> Result<()> {
-        if let Some(sort) = query_params.get("sort") {
-            if sort == "name" {
-                paths.sort_by(|v1, v2| {
-                    alphanumeric_sort::compare_str(v1.name.to_lowercase(), v2.name.to_lowercase())
-                })
-            } else if sort == "mtime" {
-                paths.sort_by(|v1, v2| v1.mtime.cmp(&v2.mtime))
-            } else if sort == "size" {
+        let sort = query_params
+            .get("sort")
+            .and_then(|s| SortType::from_str(s, true).ok())
+            .unwrap_or_else(|| self.args.sort.clone());
+        match sort {
+            SortType::Name => paths.sort_by(|v1, v2| {
+                alphanumeric_sort::compare_str(v1.name.to_lowercase(), v2.name.to_lowercase())
+            }),
+            SortType::Mtime => paths.sort_by(|v1, v2| v1.mtime.cmp(&v2.mtime)),
+            SortType::Size => {
                 paths.sort_by(|v1, v2| v1.size.unwrap_or(0).cmp(&v2.size.unwrap_or(0)))
             }
-            if query_params
-                .get("order")
-                .map(|v| v == "desc")
-                .unwrap_or_default()
-            {
-                paths.reverse()
-            }
-        } else {
-            paths.sort_unstable();
+        }
+        let order = query_params
+            .get("order")
+            .and_then(|s| Order::from_str(s, true).ok())
+            .unwrap_or_else(|| self.args.order.clone());
+        if matches!(order, Order::Descending) {
+            paths.reverse()
+        }
+        if self.args.dirs_first {
+            paths.sort_by_key(|e| !e.is_dir())
         }
         if query_params.contains_key("simple") {
             let output = paths
@@ -983,6 +988,8 @@ impl Server {
             auth: self.args.auth.exist(),
             user,
             paths,
+            sort: sort.to_string(),
+            order: order.to_string(),
         };
         let output = if query_params.contains_key("json") {
             res.headers_mut()
@@ -1177,6 +1184,8 @@ struct IndexData {
     auth: bool,
     user: Option<String>,
     paths: Vec<PathItem>,
+    sort: String,
+    order: String,
 }
 
 #[derive(Debug, Serialize)]
