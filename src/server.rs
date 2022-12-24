@@ -1,5 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 
+use crate::args::{Order, SortType};
 use crate::auth::{www_authenticate, AccessPaths, AccessPerm};
 use crate::http_utils::{body_full, IncomingStream, LengthLimitedStream};
 use crate::utils::{
@@ -50,6 +51,8 @@ use tokio_util::io::{ReaderStream, StreamReader};
 use uuid::Uuid;
 use walkdir::WalkDir;
 use xml::escape::escape_str_pcdata;
+
+use clap::ValueEnum;
 
 pub type Request = hyper::Request<Incoming>;
 pub type Response = hyper::Response<BoxBody<Bytes, anyhow::Error>>;
@@ -1132,23 +1135,24 @@ impl Server {
         access_paths: AccessPaths,
         res: &mut Response,
     ) -> Result<()> {
-        if let Some(sort) = query_params.get("sort") {
-            if sort == "name" {
-                paths.sort_by(|v1, v2| v1.sort_by_name(v2))
-            } else if sort == "mtime" {
-                paths.sort_by(|v1, v2| v1.sort_by_mtime(v2))
-            } else if sort == "size" {
-                paths.sort_by(|v1, v2| v1.sort_by_size(v2))
-            }
-            if query_params
-                .get("order")
-                .map(|v| v == "desc")
-                .unwrap_or_default()
-            {
-                paths.reverse()
-            }
-        } else {
-            paths.sort_by(|v1, v2| v1.sort_by_name(v2))
+        let sort = query_params
+            .get("sort")
+            .and_then(|s| SortType::from_str(s, true).ok())
+            .unwrap_or_else(|| self.args.sort.clone());
+        match sort {
+            SortType::Name => paths.sort_by(|v1, v2| v1.sort_by_name(v2)),
+            SortType::Mtime => paths.sort_by(|v1, v2| v1.sort_by_mtime(v2)),
+            SortType::Size => paths.sort_by(|v1, v2| v1.sort_by_size(v2)),
+        }
+        let order = query_params
+            .get("order")
+            .and_then(|s| Order::from_str(s, true).ok())
+            .unwrap_or_else(|| self.args.order.clone());
+        if matches!(order, Order::Descending) {
+            paths.reverse()
+        }
+        if self.args.dirs_first {
+            paths.sort_by_key(|e| !e.is_dir())
         }
         if has_query_flag(query_params, "simple") {
             let output = paths
@@ -1189,6 +1193,8 @@ impl Server {
             auth: self.args.auth.exist(),
             user,
             paths,
+            sort: sort.to_string(),
+            order: order.to_string(),
         };
         let output = if has_query_flag(query_params, "json") {
             res.headers_mut()
@@ -1411,6 +1417,8 @@ struct IndexData {
     auth: bool,
     user: Option<String>,
     paths: Vec<PathItem>,
+    sort: String,
+    order: String,
 }
 
 #[derive(Debug, Serialize)]

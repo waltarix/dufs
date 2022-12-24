@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - v[0-9]+.[0-9]+.[0-9]+-custom
+      - v[0-9]+.[0-9]+.[0-9]+-custom-r[0-9]+
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            rust-target: x86_64-unknown-linux-musl
+          - os: macos-14
+            rust-target: x86_64-apple-darwin
+          - os: macos-14
+            rust-target: aarch64-apple-darwin
+    env:
+      xcode_version: 16.2
+      macosx_sdk: macosx15.2
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set RUST_TARGET
+        run: echo 'RUST_TARGET=${{ matrix.rust-target }}' >> $GITHUB_ENV
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.rust-target }}
+
+      - name: Setup musl for Linux
+        if: startsWith(matrix.os, 'ubuntu-')
+        run: sudo apt-get -y -qq install musl-tools
+
+      - name: Setup Xcode for macOS
+        if: startsWith(matrix.os, 'macos-')
+        run: sudo xcode-select -s '/Applications/Xcode_${{ env.xcode_version }}.app'
+
+      - name: Build
+        run: make
+
+      - name: Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "*.tar.xz"
+          allowUpdates: true

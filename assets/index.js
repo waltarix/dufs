@@ -41,7 +41,11 @@ var DIR_EMPTY_NOTE;
  * @property {string} sort
  * @property {string} order
  */
-const PARAMS = Object.fromEntries(new URLSearchParams(window.location.search).entries());
+const PARAMS = {
+  order: DATA.order,
+  sort: DATA.sort,
+  ...Object.fromEntries(new URLSearchParams(window.location.search).entries()),
+};
 
 const IFRAME_FORMATS = [
   ".pdf",

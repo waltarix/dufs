@@ -11,7 +11,7 @@ categories = ["command-line-utilities", "web-programming::http-server"]
 keywords = ["static", "file", "server", "webdav", "cli"]
 
 [dependencies]
-clap = { version = "4.5", features = ["wrap_help", "env"] }
+clap = { version = "4.5", features = ["derive", "wrap_help", "env"] }
 clap_complete = "4.5"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "signal"]}
@@ -74,4 +74,4 @@ opt-level = 3
 lto = true
 codegen-units = 1
 panic = "abort"
-strip = "symbols"
+strip = true

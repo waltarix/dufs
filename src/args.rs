@@ -221,6 +221,41 @@ pub fn build_cli() -> Command {
                 .value_name("shell")
                 .value_parser(value_parser!(Shell))
                 .help("Print shell completion script for <shell>"),
+        ).arg(
+            Arg::new("dirs-first")
+                .short('D')
+                .long("dirs-first")
+                .hide_env(true)
+                .action(ArgAction::SetTrue)
+                .help("List directories first")
+        ).arg(
+            Arg::new("sort")
+                .short('s')
+                .long("sort")
+                .value_name("field")
+                .value_parser(clap::builder::EnumValueParser::<SortType>::new())
+                .default_value_if("latest", "true", "mtime")
+                .help("Sort by field  [default: name]")
+        ).arg(
+            Arg::new("reverse")
+                .short('r')
+                .long("reverse")
+                .hide_env(true)
+                .action(ArgAction::SetTrue)
+                .default_value_if("latest", "true", "true")
+                .help("Sort path by descending")
+        ).arg(
+            Arg::new("latest")
+                .long("latest")
+                .hide_env(true)
+                .action(ArgAction::SetTrue)
+                .help("Sort by mtime descending order")
+        ).arg(
+            Arg::new("order")
+                .long("order")
+                .hide(true)
+                .value_parser(clap::builder::EnumValueParser::<Order>::new())
+                .default_value_if("reverse", "true", "desc")
         );
 
     #[cfg(feature = "tls")]
@@ -293,6 +328,11 @@ pub struct Args {
     pub compress: Compress,
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
+    pub dirs_first: bool,
+    pub sort: SortType,
+    pub order: Order,
+    pub reverse: bool,
+    pub latest: bool,
 }
 
 impl Args {
@@ -409,6 +449,19 @@ impl Args {
         if let Some(compress) = matches.get_one::<Compress>("compress") {
             args.compress = *compress;
         }
+
+        args.dirs_first = matches.get_flag("dirs-first");
+        if let Some(sort) = matches.get_one::<SortType>("sort") {
+            args.sort = sort.clone();
+        }
+        if let Some(order) = matches.get_one::<Order>("order") {
+            args.order = order.clone();
+        }
+        args.reverse = matches.get_flag("reverse");
+        args.latest = matches.get_flag("latest");
+
+        // if let Some(latest) = matches.get_flag("latest");
+        // args.latest = matches.get_flag("latest");
 
         #[cfg(feature = "tls")]
         {
@@ -533,6 +586,42 @@ impl Compress {
     }
 }
 
+#[derive(Debug, Clone, ValueEnum, Default, Deserialize, PartialEq)]
+#[value(rename_all = "lower")]
+pub enum SortType {
+    #[default]
+    Name,
+    Mtime,
+    Size,
+}
+
+impl std::fmt::Display for SortType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.to_possible_value()
+            .expect("no values are skipped")
+            .get_name()
+            .fmt(f)
+    }
+}
+
+#[derive(Debug, Clone, ValueEnum, Default, Deserialize, PartialEq)]
+pub enum Order {
+    #[default]
+    #[value(name = "asc")]
+    Ascending,
+    #[value(name = "desc")]
+    Descending,
+}
+
+impl std::fmt::Display for Order {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.to_possible_value()
+            .expect("no values are skipped")
+            .get_name()
+            .fmt(f)
+    }
+}
+
 fn deserialize_bind_addrs<'de, D>(deserializer: D) -> Result<Vec<BindAddr>, D::Error>
 where
     D: Deserializer<'de>,
@@ -622,7 +711,7 @@ fn default_addrs() -> Vec<BindAddr> {
 }
 
 fn default_port() -> u16 {
-    5000
+    8080
 }
 
 #[cfg(test)]
