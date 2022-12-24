@@ -13,7 +13,7 @@ mod utils;
 #[macro_use]
 extern crate log;
 
-use crate::args::{build_cli, print_completions, Args};
+use crate::args::print_completions;
 use crate::server::{Request, Server};
 #[cfg(feature = "tls")]
 use crate::tls::{TlsAcceptor, TlsStream};
@@ -22,8 +22,8 @@ use std::net::{IpAddr, SocketAddr, TcpListener as StdTcpListener};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use args::BindAddr;
-use clap_complete::Shell;
+use args::{Args, BindAddr};
+use clap::Parser;
 use futures::future::join_all;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -41,15 +41,15 @@ async fn main() {
 }
 
 async fn run() -> BoxResult<()> {
+    let mut args = Args::parse();
+    args.init()?;
+    let args = args;
+
     logger::init().map_err(|e| format!("Failed to init logger, {}", e))?;
-    let cmd = build_cli();
-    let matches = cmd.get_matches();
-    if let Some(generator) = matches.get_one::<Shell>("completions") {
-        let mut cmd = build_cli();
-        print_completions(*generator, &mut cmd);
+    if let Some(shell) = args.completions {
+        print_completions(shell);
         return Ok(());
     }
-    let args = Args::parse(matches)?;
     let args = Arc::new(args);
     let running = Arc::new(AtomicBool::new(true));
     let handles = serve(args.clone(), running.clone())?;
@@ -93,7 +93,7 @@ fn serve(
             BindAddr::Address(ip) => {
                 let incoming = create_addr_incoming(SocketAddr::new(*ip, port))
                     .map_err(|e| format!("Failed to bind `{}:{}`, {}", ip, port, e))?;
-                match args.tls.as_ref() {
+                match &args.tls {
                     #[cfg(feature = "tls")]
                     Some((certs, key)) => {
                         let config = ServerConfig::builder()

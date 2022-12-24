@@ -1,3 +1,5 @@
+use clap::ValueEnum;
+use core::fmt;
 use headers::HeaderValue;
 use hyper::Method;
 use lazy_static::lazy_static;
@@ -23,7 +25,7 @@ lazy_static! {
     };
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct AccessControl {
     rules: HashMap<String, PathControl>,
 }
@@ -180,10 +182,20 @@ impl Account {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, ValueEnum)]
 pub enum AuthMethod {
     Basic,
     Digest,
+}
+
+impl fmt::Display for AuthMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let v = match self {
+            AuthMethod::Basic => "basic",
+            AuthMethod::Digest => "digest",
+        };
+        write!(f, "{}", v)
+    }
 }
 
 impl AuthMethod {
