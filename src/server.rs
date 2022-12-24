@@ -1,7 +1,9 @@
+use crate::args::SortType;
 use crate::streamer::Streamer;
 use crate::utils::{decode_uri, encode_uri, get_file_name, glob, try_get_file_name};
 use crate::Args;
 use anyhow::{anyhow, Result};
+use clap::ValueEnum;
 use walkdir::WalkDir;
 use xml::escape::escape_str_pcdata;
 
@@ -70,7 +72,7 @@ impl Server {
         } else {
             vec![]
         };
-        let html = match args.assets_path.as_ref() {
+        let html = match &args.assets_path {
             Some(path) => Cow::Owned(std::fs::read_to_string(path.join("index.html"))?),
             None => Cow::Borrowed(INDEX_HTML),
         };
@@ -555,7 +557,7 @@ impl Server {
         res: &mut Response,
     ) -> Result<bool> {
         if let Some(name) = req_path.strip_prefix(&self.assets_prefix) {
-            match self.args.assets_path.as_ref() {
+            match &self.args.assets_path {
                 Some(assets_path) => {
                     let path = assets_path.join(name);
                     self.handle_send_file(&path, headers, false, res).await?;
@@ -638,14 +640,20 @@ impl Server {
             None
         };
 
-        if let Some(mime) = mime_guess::from_path(path).first() {
-            res.headers_mut().typed_insert(ContentType::from(mime));
-        } else {
-            res.headers_mut().insert(
-                CONTENT_TYPE,
-                HeaderValue::from_static("application/octet-stream"),
-            );
-        }
+        match mime_guess::from_path(path).first() {
+            Some(mime) => match (mime.type_(), mime.subtype()) {
+                (mime_guess::mime::TEXT, mime_guess::mime::PLAIN) => res
+                    .headers_mut()
+                    .typed_insert(ContentType::from(mime_guess::mime::TEXT_PLAIN_UTF_8)),
+                _ => res.headers_mut().typed_insert(ContentType::from(mime)),
+            },
+            _ => {
+                res.headers_mut().insert(
+                    CONTENT_TYPE,
+                    HeaderValue::from_static("application/octet-stream"),
+                );
+            }
+        };
 
         let filename = try_get_file_name(path)?;
         res.headers_mut().insert(
@@ -874,25 +882,27 @@ impl Server {
         user: Option<String>,
         res: &mut Response,
     ) -> Result<()> {
-        if let Some(sort) = query_params.get("sort") {
-            if sort == "name" {
-                paths.sort_by(|v1, v2| {
-                    alphanumeric_sort::compare_str(v1.name.to_lowercase(), v2.name.to_lowercase())
-                })
-            } else if sort == "mtime" {
-                paths.sort_by(|v1, v2| v1.mtime.cmp(&v2.mtime))
-            } else if sort == "size" {
+        let sort = match SortType::from_str(query_params.get("sort").unwrap_or(&"".into()), true) {
+            Ok(s) => s,
+            Err(_) => self.args.sort.clone(),
+        };
+        match sort {
+            SortType::Name => paths.sort_by(|v1, v2| {
+                alphanumeric_sort::compare_str(v1.name.to_lowercase(), v2.name.to_lowercase())
+            }),
+            SortType::Mtime => paths.sort_by(|v1, v2| v1.mtime.cmp(&v2.mtime)),
+            SortType::Size => {
                 paths.sort_by(|v1, v2| v1.size.unwrap_or(0).cmp(&v2.size.unwrap_or(0)))
             }
-            if query_params
-                .get("order")
-                .map(|v| v == "desc")
-                .unwrap_or_default()
-            {
-                paths.reverse()
-            }
-        } else {
-            paths.sort_unstable();
+        }
+        let order = query_params
+            .get("order")
+            .map_or(self.args.order.clone(), String::clone);
+        if order == "desc" {
+            paths.reverse()
+        }
+        if self.args.dirs_first {
+            paths.sort_by_key(|e| !e.is_dir())
         }
         if query_params.contains_key("simple") {
             let output = paths
@@ -929,6 +939,8 @@ impl Server {
             auth: self.args.auth.valid(),
             user,
             paths,
+            sort: sort.to_string(),
+            order,
         };
         let output = if query_params.contains_key("json") {
             res.headers_mut()
@@ -1103,6 +1115,8 @@ struct IndexData {
     auth: bool,
     user: Option<String>,
     paths: Vec<PathItem>,
+    sort: String,
+    order: String,
 }
 
 #[derive(Debug, Serialize)]
