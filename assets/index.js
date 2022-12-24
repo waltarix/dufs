@@ -29,7 +29,11 @@ var DATA;
  * @property {string} sort
  * @property {string} order
  */
-const PARAMS = Object.fromEntries(new URLSearchParams(window.location.search).entries());
+const PARAMS = {
+  order: DATA.order,
+  sort: DATA.sort,
+  ...Object.fromEntries(new URLSearchParams(window.location.search).entries()),
+};
 
 const dirEmptyNote = PARAMS.q ? 'No results' : DATA.dir_exists ? 'Empty folder' : 'Folder will be created when a file is uploaded';
 

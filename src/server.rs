@@ -1,6 +1,7 @@
+use crate::args::{Args, SortType};
 use crate::streamer::Streamer;
 use crate::utils::{decode_uri, encode_uri, get_file_name, glob, try_get_file_name};
-use crate::{Args, BoxResult};
+use crate::BoxResult;
 use walkdir::WalkDir;
 use xml::escape::escape_str_pcdata;
 
@@ -33,6 +34,8 @@ use tokio::io::{AsyncSeekExt, AsyncWrite};
 use tokio::{fs, io};
 use tokio_util::io::StreamReader;
 use uuid::Uuid;
+
+use clap::ValueEnum;
 
 pub type Request = hyper::Request<Body>;
 pub type Response = hyper::Response<Body>;
@@ -600,14 +603,22 @@ impl Server {
             None
         };
 
-        if let Some(mime) = mime_guess::from_path(path).first() {
-            res.headers_mut().typed_insert(ContentType::from(mime));
-        } else {
-            res.headers_mut().insert(
-                CONTENT_TYPE,
-                HeaderValue::from_static("application/octet-stream"),
-            );
-        }
+        match mime_guess::from_path(path).first() {
+            Some(mime) => {
+                match (mime.type_(), mime.subtype()) {
+                    (mime_guess::mime::TEXT, mime_guess::mime::PLAIN) => res
+                        .headers_mut()
+                        .typed_insert(ContentType::from(mime_guess::mime::TEXT_PLAIN_UTF_8)),
+                    _ => res.headers_mut().typed_insert(ContentType::from(mime)),
+                };
+            }
+            _ => {
+                res.headers_mut().insert(
+                    CONTENT_TYPE,
+                    HeaderValue::from_static("application/octet-stream"),
+                );
+            }
+        };
 
         let filename = try_get_file_name(path)?;
         res.headers_mut().insert(
@@ -796,25 +807,27 @@ impl Server {
         head_only: bool,
         res: &mut Response,
     ) -> BoxResult<()> {
-        if let Some(sort) = query_params.get("sort") {
-            if sort == "name" {
-                paths.sort_by(|v1, v2| {
-                    alphanumeric_sort::compare_str(v1.name.to_lowercase(), v2.name.to_lowercase())
-                })
-            } else if sort == "mtime" {
-                paths.sort_by(|v1, v2| v1.mtime.cmp(&v2.mtime))
-            } else if sort == "size" {
+        let sort = match SortType::from_str(query_params.get("sort").unwrap_or(&"".into()), true) {
+            Ok(s) => s,
+            Err(_) => self.args.sort.clone(),
+        };
+        match sort {
+            SortType::Name => paths.sort_by(|v1, v2| {
+                alphanumeric_sort::compare_str(v1.name.to_lowercase(), v2.name.to_lowercase())
+            }),
+            SortType::Mtime => paths.sort_by(|v1, v2| v1.mtime.cmp(&v2.mtime)),
+            SortType::Size => {
                 paths.sort_by(|v1, v2| v1.size.unwrap_or(0).cmp(&v2.size.unwrap_or(0)))
             }
-            if query_params
-                .get("order")
-                .map(|v| v == "desc")
-                .unwrap_or_default()
-            {
-                paths.reverse()
-            }
-        } else {
-            paths.sort_unstable();
+        }
+        let order = query_params
+            .get("order")
+            .map_or(self.args.order.clone(), String::clone);
+        if order == "desc" {
+            paths.reverse()
+        }
+        if self.args.dirs_first {
+            paths.sort_by_key(|e| !e.is_dir())
         }
         let href = format!("/{}", normalize_path(path.strip_prefix(&self.args.path)?));
         let data = IndexData {
@@ -825,6 +838,8 @@ impl Server {
             allow_delete: self.args.allow_delete,
             allow_search: self.args.allow_search,
             dir_exists: exist,
+            sort: sort.to_string(),
+            order,
         };
         let data = serde_json::to_string(&data).unwrap();
         let output = self
@@ -985,6 +1000,8 @@ struct IndexData {
     allow_delete: bool,
     allow_search: bool,
     dir_exists: bool,
+    sort: String,
+    order: String,
 }
 
 #[derive(Debug, Serialize, Eq, PartialEq, Ord, PartialOrd)]
