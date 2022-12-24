@@ -1,5 +1,6 @@
 use anyhow::{anyhow, bail, Result};
 use base64::{engine::general_purpose, Engine as _};
+use clap::ValueEnum;
 use headers::HeaderValue;
 use hyper::Method;
 use indexmap::IndexMap;
@@ -7,6 +8,7 @@ use lazy_static::lazy_static;
 use md5::Context;
 use std::{
     collections::HashMap,
+    fmt,
     path::{Path, PathBuf},
 };
 use uuid::Uuid;
@@ -250,10 +252,19 @@ fn is_readonly_method(method: &Method) -> bool {
         || method.as_str() == "PROPFIND"
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, ValueEnum)]
 pub enum AuthMethod {
     Basic,
     Digest,
+}
+
+impl fmt::Display for AuthMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.to_possible_value()
+            .expect("no values are skipped")
+            .get_name()
+            .fmt(f)
+    }
 }
 
 impl AuthMethod {
